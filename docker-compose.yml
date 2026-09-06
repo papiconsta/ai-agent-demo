@@ -1,0 +1,151 @@
+services:
+  app:
+    build: .
+    container_name: llm-zoomcamp-app
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      MILVUS_HOST: milvus
+      MILVUS_PORT: 19530
+    volumes:
+      - ./data:/app/data
+      - ./db_queries:/app/db_queries
+      - ./llm:/app/llm
+      - ./pages:/app/pages
+      - hf_cache:/root/.cache/huggingface
+    depends_on:
+      postgres:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: llm-zoomcamp-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-llm_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-llm_password}
+      POSTGRES_DB: ${POSTGRES_DB:-ai-agent}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-llm_user} -d ${POSTGRES_DB:-llm_zoomcamp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: llm-zoomcamp-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      POSTGRES_USER: ${POSTGRES_USER:-llm_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-llm_password}
+      POSTGRES_DB: ${POSTGRES_DB:-ai-agent}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4:9
+    container_name: llm-zoomcamp-pgadmin
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: llm-zoomcamp-etcd
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+    ports:
+      - "2379:2379"
+    volumes:
+      - etcd_data:/etcd
+    command: etcd -advertise-client-urls http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: llm-zoomcamp-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+
+  milvus:
+    image: milvusdb/milvus:v2.4.3
+    container_name: llm-zoomcamp-milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    environment:
+      COMMON_STORAGETYPE: minio
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEYID: minioadmin
+      MINIO_SECRET_ACCESSKEY: minioadmin
+      ETCD_ENDPOINTS: etcd:2379
+    command: ["milvus", "run", "standalone"]
+    depends_on:
+      - etcd
+      - minio
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  attu:
+    image: zilliz/attu:v2.5.4
+    container_name: llm-zoomcamp-attu
+    ports:
+      - "8000:3000"
+    environment:
+      MILVUS_ADDRESS: milvus:19530
+    depends_on:
+      - milvus
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  grafana_data:
+  pgadmin_data:
+  etcd_data:
+  minio_data:
+  milvus_data:
+  hf_cache:
