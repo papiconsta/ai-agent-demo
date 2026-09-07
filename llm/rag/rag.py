@@ -1,7 +1,7 @@
 import json
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 import psycopg2
 
@@ -15,7 +15,7 @@ from pages.db import DB_CONFIG
 MODEL_PRICING = {
     "gpt-5.6-sol": {"input": 0.0, "output": 0.0},
     "gpt-5.6-terra": {"input": 0.0, "output": 0.0},
-    "gpt-5.6-luna": {"input": 0.0, "output": 0.0},
+    "gpt-5.6-luna": {"input": 0.15, "output": 0.60},
 }
 
 
@@ -36,7 +36,7 @@ class LLMCallRecord:
     total_tokens: int
     response_time: float
     cost: float
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 

@@ -14,8 +14,6 @@ from psycopg2.extras import RealDictCursor
 from db import DB_CONFIG    
 
 OPENAI_MODELS = {
-    "gpt-5.6-sol": "GPT-5.6 Sol",
-    "gpt-5.6-terra": "GPT-5.6 Terra",
     "gpt-5.6-luna": "GPT-5.6 Luna",
 }
 
