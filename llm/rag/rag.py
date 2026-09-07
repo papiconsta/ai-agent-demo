@@ -1,5 +1,46 @@
 import json
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
+
+import psycopg2
+
 from llm.tools.tools import query_data_tool, search_tool
+from pages.db import DB_CONFIG
+
+
+# TODO: these are placeholder rates -- replace with the real current
+# per-token pricing for each model from OpenAI's pricing page before
+# trusting any cost numbers this produces.
+MODEL_PRICING = {
+    "gpt-5.6-sol": {"input": 0.0, "output": 0.0},
+    "gpt-5.6-terra": {"input": 0.0, "output": 0.0},
+    "gpt-5.6-luna": {"input": 0.0, "output": 0.0},
+}
+
+
+def calculate_cost(model, usage):
+    rates = MODEL_PRICING.get(model)
+    if rates is None:
+        return 0.0
+    return (usage.prompt_tokens * rates["input"] + usage.completion_tokens * rates["output"]) / 1_000_000
+
+@dataclass
+class LLMCallRecord:
+    model: str
+    prompt: str
+    instructions: str
+    answer: str
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    response_time: float
+    cost: float
+    timestamp: datetime = field(default_factory=datetime.now)
+
+
+
+
 
 SYSTEM_PROMPT = '''
 You are a helpful assistant that answers questions about warehouse inventory
@@ -29,6 +70,7 @@ class RAGClient:
         self.instructions = instructions
         self.prompt_template = prompt_template
         self.model = model
+        self.call_log = []
 
     def search(self, query, num_results=5, filter_dict=None):
         """
@@ -120,7 +162,7 @@ class RAGClient:
         )
         return self.prompt_template.format(question=query, context=context, previous_answers=conversation_history)
 
-    def llm(self, prompt):
+    def llm(self, prompt, conversation_id=None):
         messages = [
             {"role": "system", "content": self.instructions},
             {"role": "user", "content": prompt},
@@ -128,20 +170,24 @@ class RAGClient:
 
         # Aegentic loop !
         while True:
+            start_time = time.time()
             response = self.llm_client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 tools=[search_tool(), query_data_tool()],
                 reasoning_effort="none",
             )
+            response_time = time.time() - start_time
             message = response.choices[0].message
 
+            self._log_response(prompt, response, response_time, conversation_id=conversation_id)
             if not message.tool_calls:
                 return message.content
 
             messages.append(message)
 
             for tool_call in message.tool_calls:
+                tool_start_time = time.time()
                 arguments = json.loads(tool_call.function.arguments)
                 print("TOOL CALLED:", tool_call.function.name, arguments)
 
@@ -151,15 +197,72 @@ class RAGClient:
                     results = self.query_data(**arguments)
                 else:
                     results = {"error": f"Unknown tool: {tool_call.function.name}"}
+                tool_end_time = time.time()
 
                 print("RESULTS:", results if isinstance(results, dict) else f"{len(results)} rows")
+                print(f"TOOL EXECUTION TIME: {tool_end_time - tool_start_time:.2f} seconds")
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
                     "content": str(results),
                 })
 
-    def rag(self, query, history=None):
+    def insertStatisticsToDBforAnalysis(self, record, conversation_id):
+        with psycopg2.connect(**DB_CONFIG) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO llm_call_records (
+                        conversation_id, model, prompt, instructions, answer,
+                        prompt_tokens, completion_tokens, total_tokens,
+                        response_time, cost, timestamp_created
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        conversation_id,
+                        record.model,
+                        record.prompt,
+                        record.instructions,
+                        record.answer,
+                        record.prompt_tokens,
+                        record.completion_tokens,
+                        record.total_tokens,
+                        record.response_time,
+                        record.cost,
+                        record.timestamp,
+                    )
+                )
+            connection.commit()
+
+    def _log_response(self, prompt, response, response_time, conversation_id=None):
+        usage = response.usage
+        cost = calculate_cost(self.model, usage)
+
+        call_record = LLMCallRecord(
+            model=self.model,
+            prompt=prompt,
+            instructions=self.instructions,
+            answer=response.choices[0].message.content,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            total_tokens=usage.total_tokens,
+            response_time=response_time,
+            cost=cost,
+        )
+        print(call_record)
+        self.call_log.append(call_record)
+        if conversation_id is not None:
+            self.insertStatisticsToDBforAnalysis(call_record, conversation_id)
+
+
+
+    def rag(self, query, history=None, conversation_id=None):
         prompt = self.build_prompt(query, [], history=history)
-        answer = self.llm(prompt)
+        start_time = time.time()
+        answer = self.llm(prompt, conversation_id=conversation_id)
+        end_time = time.time()
+
+        print(f"RAG RESPONSE TIME: {end_time - start_time:.2f} seconds")
         return answer
+
+    

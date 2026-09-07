@@ -16,7 +16,7 @@ st.session_state.setdefault("logged_in", False)
 if st.session_state.logged_in:
     pages = [
         st.Page("home.py", title="Home", icon=":material/home:"),
-        st.Page("evaluations.py", title="Evaluations", icon=":material/fact_check:"),
+        # st.Page("evaluations.py", title="Evaluations", icon=":material/fact_check:"),
         st.Page("monitor.py", title="Monitor", icon=":material/monitoring:"),
         st.Page("settings.py", title="Settings", icon=":material/settings:"),
     ]

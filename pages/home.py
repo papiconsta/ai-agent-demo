@@ -172,7 +172,8 @@ if previous_conversations and conversation_id:
             st.write(prompt)
 
         with st.chat_message("assistant"):
-            answer = client.rag(prompt, history=st.session_state.chat_history[:-1])  # Pass history MINUS the current turn
+            with st.spinner("Thinking..."):
+                answer = client.rag(prompt, history=st.session_state.chat_history[:-1], conversation_id=conversation_id)  # Pass history MINUS the current turn
             st.write(answer)
         insertIntoChatHistory(conversation_id, user_id, "assistant", answer)
         st.session_state.chat_history.append({"role": "assistant", "content": answer})
@@ -201,7 +202,8 @@ else:
             st.write(prompt)
 
         with st.chat_message("assistant"):
-            answer = client.rag(prompt, history=st.session_state.chat_history[:-1])  # Pass history MINUS the current turn
+            with st.spinner("Thinking..."):
+                answer = client.rag(prompt, history=st.session_state.chat_history[:-1], conversation_id=conversation_id)  # Pass history MINUS the current turn
             st.write(answer)
         insertIntoChatHistory(conversation_id, user_id, "assistant", answer)
         st.session_state.chat_history.append({"role": "assistant", "content": answer})

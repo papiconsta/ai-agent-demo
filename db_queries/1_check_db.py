@@ -26,7 +26,8 @@ DB_CONFIG = {
 SQL_FILES = [
     "2_create_users.sql",
     "3_create_chat_history.sql",
-    "4_conversations.sql"
+    "4_conversations.sql",
+    "5_llm_logs.sql"
 ]
 
 MILVUS_HOST = os.environ.get("MILVUS_HOST", "localhost")
